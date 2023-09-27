@@ -55,8 +55,10 @@ unsafe extern "system" fn init(_: usize) {
 }
 
 unsafe fn patch() -> Result<()> {
+    let exe_path = std::env::current_exe()?;
+    let bin_dir = exe_path.parent().unwrap();
     let config = LogConfigBuilder::builder()
-        .path("bitfix.txt")
+        .path(bin_dir.join("bitfix.txt").to_str().unwrap()) // TODO why does this not take a path??
         .size(100)
         .roll_count(10)
         .time_format("%Y-%m-%d %H:%M:%S.%f")
@@ -89,7 +91,7 @@ unsafe fn patch() -> Result<()> {
 
     info!("loading lua patches");
 
-    let patches = load_lua_patches("bitfix")?;
+    let patches = load_lua_patches(bin_dir.join("bitfix"))?;
 
     info!("executing patches");
     exec_patches(&mut memory, patches)?;
