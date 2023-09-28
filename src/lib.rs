@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use rlua::{Function, Lua, Table, UserData, Value};
+use rlua::{Function, Lua, MultiValue, Table, UserData, Value};
 use simple_log::{error, info, LogConfigBuilder};
 use windows::{
     Win32::Foundation::*,
@@ -254,6 +254,23 @@ fn exec_patches<'wrapper, 'memory>(
     }
     Lua::new().context(|lua| -> Result<()> {
         info!("entered lua context");
+
+        let print = lua.create_function(|lua, args: MultiValue| {
+            let tostring = lua.globals().get::<_, Function>("tostring")?;
+            let mut buf = String::new();
+            let mut iter = args.into_iter().peekable();
+            while let Some(arg) = iter.next() {
+                let str = tostring.call::<_, String>(arg)?;
+                buf.push_str(&str);
+                if iter.peek().is_some() {
+                    buf.push('\t');
+                }
+            }
+            info!("lua: {buf}");
+            Ok(())
+        })?;
+        lua.globals().set("print", print)?;
+
         let mut configs = vec![];
         for s in &patches {
             let table = lua
