@@ -1,0 +1,42 @@
+name: Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Variables
+        id: vars
+        run: echo sha_short=${GITHUB_SHA::7} >> $GITHUB_OUTPUT
+
+      - uses: actions/checkout@master
+
+      - name: Install package
+        run: sudo apt-get update && sudo apt-get install gcc-mingw-w64
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: x86_64-pc-windows-gnu
+
+      - name: Build
+        run: cargo build --release --target x86_64-pc-windows-gnu
+
+      - name: Archive
+        run: zip -j ${{ github.event.repository.name }}-${{ steps.vars.outputs.sha_short }}.zip README.md LICENSE target/x86_64-pc-windows-gnu/release/bitfix.dll
+
+      - name: Release
+        uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "latest"
+          prerelease: true
+          title: "Development Build"
+          files: |
+            ${{ github.event.repository.name }}-${{ steps.vars.outputs.sha_short }}.zip
