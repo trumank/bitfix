@@ -1,3 +1,5 @@
+use std::ops::Index;
+use std::path::PathBuf;
 use std::{
     ffi::{c_void, OsStr},
     fs,
@@ -5,8 +7,9 @@ use std::{
     path::Path,
 };
 
-use anyhow::{Context, Result};
-use simple_log::{info, LogConfigBuilder};
+use anyhow::{anyhow, Context, Result};
+use rlua::{Function, Lua, Table, UserData, Value};
+use simple_log::{error, info, LogConfigBuilder};
 use windows::{
     Win32::Foundation::*,
     Win32::System::{
@@ -51,12 +54,18 @@ extern "system" fn DllMain(dll_module: HMODULE, call_reason: u32, _: *mut ()) ->
 }
 
 unsafe extern "system" fn init(_: usize) {
-    patch().ok();
+    info!("patcher loaded");
+
+    if let Ok(bin_dir) = setup() {
+        if let Err(e) = patch(bin_dir) {
+            error!("{e:#}");
+        }
+    }
 }
 
-unsafe fn patch() -> Result<()> {
+fn setup() -> Result<PathBuf> {
     let exe_path = std::env::current_exe()?;
-    let bin_dir = exe_path.parent().unwrap();
+    let bin_dir = exe_path.parent().context("could not find exe parent dir")?;
     let config = LogConfigBuilder::builder()
         .path(bin_dir.join("bitfix.txt").to_str().unwrap()) // TODO why does this not take a path??
         .size(100)
@@ -65,10 +74,11 @@ unsafe fn patch() -> Result<()> {
         .level("debug")
         .output_file()
         .build();
-    simple_log::new(config).ok();
+    simple_log::new(config).map_err(|e| anyhow!("{e}"))?;
+    Ok(bin_dir.to_path_buf())
+}
 
-    info!("patcher loaded");
-
+unsafe fn patch(bin_dir: PathBuf) -> Result<()> {
     let module = GetModuleHandleA(None).context("could not find main module")?;
     let process = GetCurrentProcess();
 
@@ -99,10 +109,6 @@ unsafe fn patch() -> Result<()> {
 
     Ok(())
 }
-
-use std::ops::Index;
-
-use rlua::{Function, Lua, Table, UserData};
 
 trait Memory<'memory>: Index<usize, Output = u8> {
     fn pages(&self) -> usize;
@@ -240,22 +246,34 @@ fn exec_patches<'wrapper, 'memory>(
     memory: &'wrapper mut (impl Memory<'memory> + 'memory),
     patches: Vec<LuaPatch>,
 ) -> Result<()> {
-    struct Config<'lua> {
+    struct Config<'file, 'lua> {
+        file: &'file LuaPatch,
+        label: String,
         pattern: String,
         function: Function<'lua>,
     }
     Lua::new().context(|lua| -> Result<()> {
         info!("entered lua context");
-        let configs = patches
-            .iter()
-            .map(|s| {
-                let table = lua.load(&s.body).eval::<Table>()?;
-                Ok(Config {
-                    pattern: table.get::<_, String>("pattern")?,
-                    function: table.get::<_, Function>("match")?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let mut configs = vec![];
+        for s in &patches {
+            let table = lua
+                .load(&s.body)
+                .eval::<Table>()
+                .with_context(|| format!("in {:?}", s.name))?;
+            for pair in table.pairs::<Value, Table>() {
+                let (label, v) = pair?;
+                configs.push(Config {
+                    file: s,
+                    label: lua
+                        .coerce_string(label)?
+                        .with_context(|| "could not coerce {label:?} to string")?
+                        .to_str()?
+                        .to_string(),
+                    pattern: v.get::<_, String>("pattern")?,
+                    function: v.get::<_, Function>("match")?,
+                });
+            }
+        }
 
         let patterns = configs
             .iter()
@@ -283,9 +301,10 @@ fn exec_patches<'wrapper, 'memory>(
                         memory,
                         _phantom: PhantomData,
                     })?;
+                    let config = &configs[*index];
                     info!(
-                        "calling patcher {:?}: on {address:X?}",
-                        patches[*index].name
+                        "calling patcher {}/{}: on {address:X?}",
+                        config.file.name, config.label,
                     );
                     configs[*index].function.call::<_, ()>(ctx)
                 })?;
@@ -343,6 +362,12 @@ mod test {
 
     #[test]
     fn test_lua() -> Result<()> {
+        let config = LogConfigBuilder::builder()
+            .level("debug")
+            .output_console()
+            .build();
+        simple_log::new(config).ok();
+
         let base = 100;
         let mut data = [
             0x00, 0x00, 0x00, 0x00, 0x10, 0x20, 0x99, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -352,7 +377,9 @@ mod test {
 
         let patches = vec![LuaPatch {
             name: "test".to_string(),
-            body: r#"{
+            body: r#"
+            {
+                patch = {
                     pattern = '10 20 ?? 30',
                     match = function(ctx)
                         print(string.format('match found! %s', ctx:address()))
@@ -360,7 +387,9 @@ mod test {
                         ctx[ctx:address()] = 0x25
                         print('patched')
                     end
-                }"#
+                }
+            }
+            "#
             .to_string(),
         }];
 
