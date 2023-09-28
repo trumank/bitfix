@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::Index;
 use std::path::PathBuf;
 use std::{
@@ -119,6 +120,7 @@ trait Memory<'memory>: Index<usize, Output = u8> {
 
 struct MatchContext<'wrapper, 'memory, M: Memory<'memory>> {
     address: usize,
+    index: usize,
     memory: &'wrapper mut M,
     _phantom: PhantomData<&'memory M>,
 }
@@ -126,6 +128,7 @@ struct MatchContext<'wrapper, 'memory, M: Memory<'memory>> {
 impl<'wrapper, 'memory, M: Memory<'memory>> UserData for MatchContext<'wrapper, 'memory, M> {
     fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(methods: &mut T) {
         methods.add_method("address", |_, this: &Self, ()| Ok(this.address));
+        methods.add_method("index", |_, this: &Self, ()| Ok(this.index));
         methods.add_meta_method(rlua::MetaMethod::Index, |_, this: &Self, index: usize| {
             Ok(this.memory[index])
         });
@@ -311,9 +314,12 @@ fn exec_patches<'wrapper, 'memory>(
                 patternsleuth_scanner::scan_memchr_lookup(&pattern_refs, map.address, map.memory);
             info!("scan results: {results:X?}");
 
+            let mut counts = HashMap::new();
             for (index, address) in results {
+                let count = counts.entry(index).or_default();
                 lua.scope(|lua| {
                     let ctx = lua.create_nonstatic_userdata(MatchContext {
+                        index: *count,
                         address,
                         memory,
                         _phantom: PhantomData,
@@ -325,6 +331,7 @@ fn exec_patches<'wrapper, 'memory>(
                     );
                     configs[*index].function.call::<_, ()>(ctx)
                 })?;
+                *count += 1;
             }
         }
 
@@ -396,13 +403,19 @@ mod test {
             name: "test".to_string(),
             body: r#"
             {
-                patch = {
+                patch1 = {
                     pattern = '10 20 ?? 30',
                     match = function(ctx)
                         print(string.format('match found! %s', ctx:address()))
                         print(string.format('first byte: %s', ctx[ctx:address()]))
                         ctx[ctx:address()] = 0x25
                         print('patched')
+                    end
+                },
+                patch2 = {
+                    pattern = '00',
+                    match = function(ctx)
+                        print(string.format('match index; %s', ctx:index()))
                     end
                 }
             }
