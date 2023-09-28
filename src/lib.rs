@@ -55,9 +55,13 @@ extern "system" fn DllMain(dll_module: HMODULE, call_reason: u32, _: *mut ()) ->
 }
 
 unsafe extern "system" fn init(_: usize) {
-    info!("patcher loaded");
-
     if let Ok(bin_dir) = setup() {
+        info!(
+            "bitfix v{}-{} loaded",
+            env!("CARGO_PKG_VERSION"),
+            &env!("GIT_HASH")[..7]
+        );
+
         if let Err(e) = patch(bin_dir) {
             error!("{e:#}");
         }
