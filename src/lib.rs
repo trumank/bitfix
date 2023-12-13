@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::Index;
 use std::path::PathBuf;
 use std::{
@@ -301,41 +300,33 @@ fn exec_patches<'wrapper, 'memory>(
 
         let patterns = configs
             .iter()
-            .enumerate()
-            .map(|(index, config)| {
-                Ok((index, patternsleuth_scanner::Pattern::new(&config.pattern)?))
-            })
+            .map(|config| patternsleuth_scanner::Pattern::new(&config.pattern))
             .collect::<Result<Vec<_>>>()?;
-        let pattern_refs = patterns
-            .iter()
-            .map(|(name, pattern)| (name, pattern))
-            .collect::<Vec<_>>();
+        let pattern_refs = patterns.iter().collect::<Vec<_>>();
 
         for i in 0..memory.pages() {
             info!("scanning page: {i}");
             let map = &memory.page(i);
             let results =
-                patternsleuth_scanner::scan_memchr_lookup(&pattern_refs, map.address, map.memory);
+                patternsleuth_scanner::scan_pattern(&pattern_refs, map.address, map.memory);
             info!("scan results: {results:X?}");
 
-            let mut counts = HashMap::new();
-            for (index, address) in results {
-                let count = counts.entry(index).or_default();
-                lua.scope(|lua| {
-                    let ctx = lua.create_nonstatic_userdata(MatchContext {
-                        index: *count,
-                        address,
-                        memory,
-                        _phantom: PhantomData,
+            for (config, addresses) in configs.iter().zip(results) {
+                for (index, address) in addresses.iter().enumerate() {
+                    lua.scope(|lua| {
+                        let ctx = lua.create_nonstatic_userdata(MatchContext {
+                            index,
+                            address: *address,
+                            memory,
+                            _phantom: PhantomData,
+                        })?;
+                        info!(
+                            "calling patcher {}/{}: on {address:X?}",
+                            config.file.name, config.label,
+                        );
+                        config.function.call::<_, ()>(ctx)
                     })?;
-                    let config = &configs[*index];
-                    info!(
-                        "calling patcher {}/{}: on {address:X?}",
-                        config.file.name, config.label,
-                    );
-                    configs[*index].function.call::<_, ()>(ctx)
-                })?;
-                *count += 1;
+                }
             }
         }
 
