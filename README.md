@@ -62,3 +62,19 @@ return {
   }
 }
 ```
+
+Allow scaling beyond hard coded limit of 4 players in a lobby.
+NOTE: Make sure all player count based arrays in difficulty settings have enough
+values for the number of players or bad things will happen!
+```lua
+-- bitfix/increased_players_difficulty_scaling_fix.lua
+local patch = function(ctx)
+  ctx[ctx:address() + 1] = 0xff
+end
+return {
+  { match = patch, pattern = 'ba 04 00 00 00 3b c2 0f 4e d0' },
+  { match = patch, pattern = 'b9 04 00 00 00 3b c1 0f 4e c8' },
+  { match = patch, pattern = 'b9 04 00 00 00 8b 80 ?? ?? 00 00 3b c1 0f 4d c1' },
+  { match = patch, pattern = 'b9 04 00 00 00 8b 40 08 3b c1 0f 4d c1' },
+}
+```
