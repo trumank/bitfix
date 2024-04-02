@@ -37,6 +37,50 @@ extern "system" fn D3DPERF_EndEvent() {}
 #[allow(non_snake_case, unused_variables)]
 extern "system" fn D3DPERF_BeginEvent() {}
 
+// dsound.dll
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DirectSoundCaptureCreate() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DirectSoundCaptureCreate8() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DirectSoundCaptureEnumerateA() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DirectSoundCaptureEnumerateW() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DirectSoundCreate() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DirectSoundCreate8() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DirectSoundEnumerateA() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DirectSoundEnumerateW() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DirectSoundFullDuplexCreate() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DllCanUnloadNow() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DllGetClassObject() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DllRegisterServer() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn DllUnregisterServer() {}
+#[no_mangle]
+#[allow(non_snake_case, unused_variables)]
+extern "system" fn GetDeviceID() {}
+
 #[no_mangle]
 #[allow(non_snake_case, unused_variables)]
 extern "system" fn DllMain(dll_module: HMODULE, call_reason: u32, _: *mut ()) -> bool {
