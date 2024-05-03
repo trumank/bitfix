@@ -50,6 +50,19 @@ return {
 }
 ```
 
+Stop the drop pod from eating flares. (why does it do this?)
+```lua
+-- bitfix/non_flare_devouring_drop_pod.lua
+return {
+  {
+    pattern = '3B 51 ?? 7F ?? 48 8B 49 ?? 48 39 04 D1 75 ?? 48 8B D3 48 8B CF E8 ?? ?? ?? ?? 48 8B 5C 24',
+    match = function(ctx)
+      ctx[ctx:address() + 13] = 0xEB
+    end
+  },
+}
+```
+
 Fix game crashing if more than 8 players are in the lobby during mission load
 ```lua
 -- bitfix/increased_players_fix.lua
