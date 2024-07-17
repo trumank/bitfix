@@ -91,3 +91,16 @@ return {
   { match = patch, pattern = 'b9 04 00 00 00 8b 40 08 3b c1 0f 4d c1' },
 }
 ```
+
+Show normal terrain on terrain scanner instead of scanner material.
+```lua
+-- bitfix/normal_terrain_scanner_mat.lua
+return {
+  {
+    pattern = '74 ?? 49 8B 4C 24 ?? EB ?? 49 8B 0C 24',
+    match = function(ctx)
+      ctx[ctx:address()] = 0x75
+    end
+  }
+}
+```
