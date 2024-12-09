@@ -10,94 +10,16 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use rlua::{Function, Lua, MultiValue, Table, UserData, Value};
 use simple_log::{error, info, LogConfigBuilder};
-use windows::{
-    Win32::Foundation::*,
-    Win32::System::{
-        LibraryLoader::GetModuleHandleA,
-        Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS},
-        ProcessStatus::{GetModuleInformation, MODULEINFO},
-        SystemServices::*,
-        Threading::{GetCurrentProcess, GetCurrentThread, QueueUserAPC},
-    },
+use windows::Win32::System::{
+    LibraryLoader::GetModuleHandleA,
+    Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS},
+    ProcessStatus::{GetModuleInformation, MODULEINFO},
+    Threading::GetCurrentProcess,
 };
 
-// x3daudio1_7.dll
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn X3DAudioCalculate() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn X3DAudioInitialize() {}
+proxy_dll::proxy_dll!([d3d9, d3d11, x3daudio1_7], init);
 
-// d3d9.dll
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn D3DPERF_EndEvent() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn D3DPERF_BeginEvent() {}
-
-// dsound.dll
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DirectSoundCaptureCreate() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DirectSoundCaptureCreate8() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DirectSoundCaptureEnumerateA() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DirectSoundCaptureEnumerateW() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DirectSoundCreate() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DirectSoundCreate8() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DirectSoundEnumerateA() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DirectSoundEnumerateW() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DirectSoundFullDuplexCreate() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DllCanUnloadNow() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DllGetClassObject() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DllRegisterServer() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DllUnregisterServer() {}
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn GetDeviceID() {}
-
-#[no_mangle]
-#[allow(non_snake_case, unused_variables)]
-extern "system" fn DllMain(dll_module: HMODULE, call_reason: u32, _: *mut ()) -> bool {
-    unsafe {
-        match call_reason {
-            DLL_PROCESS_ATTACH => {
-                QueueUserAPC(Some(init), GetCurrentThread(), 0);
-            }
-            DLL_PROCESS_DETACH => (),
-            _ => (),
-        }
-
-        true
-    }
-}
-
-unsafe extern "system" fn init(_: usize) {
+fn init() {
     if let Ok(bin_dir) = setup() {
         info!(
             "bitfix v{}-{} loaded",
@@ -105,8 +27,10 @@ unsafe extern "system" fn init(_: usize) {
             &env!("GIT_HASH")[..7]
         );
 
-        if let Err(e) = patch(bin_dir) {
-            error!("{e:#}");
+        unsafe {
+            if let Err(e) = patch(bin_dir) {
+                error!("{e:#}");
+            }
         }
     }
 }
