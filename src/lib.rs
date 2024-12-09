@@ -96,7 +96,7 @@ struct MatchContext<'wrapper, 'memory, M: Memory<'memory>> {
     _phantom: PhantomData<&'memory M>,
 }
 
-impl<'wrapper, 'memory, M: Memory<'memory>> UserData for MatchContext<'wrapper, 'memory, M> {
+impl<'memory, M: Memory<'memory>> UserData for MatchContext<'_, 'memory, M> {
     fn add_methods<'lua, T: rlua::UserDataMethods<'lua, Self>>(methods: &mut T) {
         methods.add_method("address", |_, this: &Self, ()| Ok(this.address));
         methods.add_method("index", |_, this: &Self, ()| Ok(this.index));
@@ -170,7 +170,7 @@ impl<'memory> Memory<'memory> for RawMemory<'memory> {
         panic!("out of bounds")
     }
 }
-impl<'memory> Index<usize> for RawMemory<'memory> {
+impl Index<usize> for RawMemory<'_> {
     type Output = u8;
     fn index(&self, index: usize) -> &Self::Output {
         for Page { address, memory } in &self.pages {
