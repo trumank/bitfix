@@ -13,7 +13,9 @@ lto = true
 
 [dependencies]
 anyhow = "1.0.72"
+libc = "0.2.168"
 patternsleuth_scanner = { git = "https://github.com/trumank/patternsleuth", version = "0.1.0" }
+patternsleuth = { git = "https://github.com/trumank/patternsleuth", version = "0.1.0", features = ["image-pe", "image-elf", "process-internal"] }
 proxy_dll = { git = "https://github.com/trumank/proxy_dll.git", version = "0.1.0" }
 rlua = "0.19.7"
 simple-log = "1.6.0"

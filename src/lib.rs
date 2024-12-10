@@ -1,23 +1,53 @@
+use core::slice;
 use std::ops::Index;
 use std::path::PathBuf;
-use std::{
-    ffi::{c_void, OsStr},
-    fs,
-    marker::PhantomData,
-    path::Path,
-};
+use std::{ffi::OsStr, fs, marker::PhantomData, path::Path};
 
 use anyhow::{anyhow, Context, Result};
 use rlua::{Function, Lua, MultiValue, Table, UserData, Value};
 use simple_log::{error, info, LogConfigBuilder};
-use windows::Win32::System::{
-    LibraryLoader::GetModuleHandleA,
-    Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS},
-    ProcessStatus::{GetModuleInformation, MODULEINFO},
-    Threading::GetCurrentProcess,
-};
 
-proxy_dll::proxy_dll!([d3d9, d3d11, x3daudio1_7], init);
+#[cfg(target_os = "windows")]
+proxy_dll::proxy_dll!([d3d9, d3d11, x3daudio1_7, winmm], init);
+
+#[cfg(target_os = "linux")]
+mod linux_entry {
+    use libc::{c_char, c_int, c_void};
+
+    type MainFunc = extern "C" fn(c_int, *const *const c_char, *const *const c_char) -> c_int;
+
+    type LibcStartMainFunc = extern "C" fn(
+        MainFunc,
+        c_int,
+        *const *const c_char,
+        extern "C" fn() -> c_int,
+        extern "C" fn(),
+        extern "C" fn(),
+        *mut c_void,
+    ) -> c_int;
+
+    #[no_mangle]
+    pub extern "C" fn __libc_start_main(
+        main: MainFunc,
+        argc: c_int,
+        argv: *const *const c_char,
+        init: extern "C" fn() -> c_int,
+        fini: extern "C" fn(),
+        rtld_fini: extern "C" fn(),
+        stack_end: *mut c_void,
+    ) -> c_int {
+        super::init();
+
+        let original_libc_start_main: LibcStartMainFunc = unsafe {
+            std::mem::transmute(libc::dlsym(
+                libc::RTLD_NEXT,
+                c"__libc_start_main".as_ptr() as *const _,
+            ))
+        };
+
+        original_libc_start_main(main, argc, argv, init, fini, rtld_fini, stack_end)
+    }
+}
 
 fn init() {
     if let Ok(bin_dir) = setup() {
@@ -51,32 +81,23 @@ fn setup() -> Result<PathBuf> {
 }
 
 unsafe fn patch(bin_dir: PathBuf) -> Result<()> {
-    let module = GetModuleHandleA(None).context("could not find main module")?;
-    let process = GetCurrentProcess();
+    let img = patternsleuth::process::internal::read_image()
+        .context("failed to read executable image")?;
 
-    let mut mod_info = MODULEINFO::default();
-    GetModuleInformation(
-        process,
-        module,
-        &mut mod_info as *mut _,
-        std::mem::size_of::<MODULEINFO>() as u32,
-    );
-
-    let mut memory = RawMemory::default();
-    memory.map_page(
-        mod_info.lpBaseOfDll as usize,
-        std::slice::from_raw_parts_mut(
-            mod_info.lpBaseOfDll as *mut u8,
-            mod_info.SizeOfImage as usize,
-        ),
-    );
+    let mut mem = RawMemory::default();
+    for section in img.memory.sections() {
+        mem.map_page(section.address(), unsafe {
+            // HACK PS image offers no way to get memory mutably
+            slice::from_raw_parts_mut(section.address() as *mut u8, section.len())
+        });
+    }
 
     info!("loading lua patches");
 
     let patches = load_lua_patches(bin_dir.join("bitfix"))?;
 
     info!("executing patches");
-    exec_patches(&mut memory, patches)?;
+    exec_patches(&mut mem, patches)?;
     info!("done executing");
 
     Ok(())
@@ -144,25 +165,53 @@ impl<'memory> Memory<'memory> for RawMemory<'memory> {
             if index >= *address && index < *address + memory.len() {
                 let offset = index - *address;
                 let write_mem = &mut memory[offset..offset + 1];
-                let mut old: PAGE_PROTECTION_FLAGS = Default::default();
-                unsafe {
-                    VirtualProtect(
-                        write_mem.as_ptr() as *const c_void,
-                        write_mem.len(),
-                        PAGE_EXECUTE_READWRITE,
-                        &mut old,
-                    );
+
+                #[cfg(target_os = "windows")]
+                {
+                    use std::ffi::c_void;
+                    use windows::Win32::System::Memory::{
+                        VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
+                    };
+                    let mut old: PAGE_PROTECTION_FLAGS = Default::default();
+                    unsafe {
+                        VirtualProtect(
+                            write_mem.as_ptr() as *const c_void,
+                            write_mem.len(),
+                            PAGE_EXECUTE_READWRITE,
+                            &mut old,
+                        );
+                    }
+
+                    write_mem[0] = data;
+
+                    unsafe {
+                        VirtualProtect(
+                            write_mem.as_ptr() as *const c_void,
+                            write_mem.len(),
+                            old,
+                            &mut old,
+                        );
+                    }
                 }
+                #[cfg(target_os = "linux")]
+                {
+                    unsafe {
+                        use libc::{c_void, PROT_EXEC, PROT_READ, PROT_WRITE};
 
-                write_mem[0] = data;
+                        let page_size = libc::sysconf(libc::_SC_PAGESIZE) as usize;
+                        let start = write_mem.as_ptr() as usize;
+                        let start_aligned = (start) & !(page_size - 1);
+                        let end_aligned =
+                            ((start + write_mem.len()) + page_size - 1) & !(page_size - 1);
 
-                unsafe {
-                    VirtualProtect(
-                        write_mem.as_ptr() as *const c_void,
-                        write_mem.len(),
-                        old,
-                        &mut old,
-                    );
+                        libc::mprotect(
+                            start_aligned as *mut c_void,
+                            end_aligned - start_aligned,
+                            PROT_READ | PROT_WRITE | PROT_EXEC,
+                        );
+                    }
+                    write_mem[0] = data;
+                    // TODO reset protection flags (probably requires parsing /proc maps)
                 }
                 return;
             }
