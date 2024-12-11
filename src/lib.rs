@@ -24,7 +24,7 @@ fn init() {
         info!(
             "bitfix v{}-{} loaded",
             env!("CARGO_PKG_VERSION"),
-            &env!("GIT_HASH")[..7]
+            env!("GIT_HASH").chars().take(7).collect::<String>()
         );
 
         unsafe {
